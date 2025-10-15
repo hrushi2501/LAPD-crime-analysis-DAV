@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Crime Analytics Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <style>
+            /* Proper chart container sizing */
+            .chart-container {
+                position: relative;
+                width: 100%;
+                height: 100%;
+            }
+            .chart-container canvas {
+                display: block;
+            }
+        </style>
+    </head>
+    <body class="bg-slate-50 text-slate-800">
+        <div class="max-w-7xl mx-auto p-4">
+            <header class="flex items-center justify-between mb-4">
+                <div>
+                    <h1 class="text-2xl font-semibold">Crime Analytics Dashboard</h1>
+                    <p class="text-sm text-slate-500">Interactive overview (sample data or your CSV)</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="hidden sm:block text-sm text-slate-500">Los Angeles — compact view</div>
+                </div>
+            </header>
+
+            <!-- Filters and Apply -->
+            <section class="bg-white rounded-lg shadow p-3 mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs text-slate-600 mb-1">Area</label>
+                        <select id="areaFilter" class="w-full border rounded px-2 py-1 text-sm"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-600 mb-1">Year</label>
+                        <select id="yearFilter" class="w-full border rounded px-2 py-1 text-sm"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-600 mb-1">Month</label>
+                        <select id="monthFilter" class="w-full border rounded px-2 py-1 text-sm"></select>
+                    </div>
+                    <div class="md:col-span-1">
+                        <button id="applyFilters" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 text-sm">Apply</button>
+                    </div>
+                    <div class="md:col-span-1 text-right text-xs text-slate-500">Data: <span id="dataSource">sample</span></div>
+                </div>
+            </section>
+
+            <!-- Key stats -->
+            <section class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 items-stretch">
+                <div class="bg-white rounded-lg shadow p-3 h-28 flex flex-col justify-between">
+                    <div class="text-xs text-slate-500">Total Crimes</div>
+                    <div id="totalCrimes" class="text-xl font-semibold mt-1">0</div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-3 h-28 flex flex-col justify-between">
+                    <div class="text-xs text-slate-500">Avg Victim Age</div>
+                    <div id="avgAge" class="text-xl font-semibold mt-1 text-green-400">0</div>
+                </div>
+            </section>
+
+            <!-- Charts + Map -->
+            <section class="grid grid-cols-1 lg:grid-cols-3 gap-3 items-stretch">
+                <div class="lg:col-span-2 space-y-3">
+                    <div class="bg-white rounded-lg shadow p-3" style="height: 280px;">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-medium">Crimes by Area</h3>
+                            <div class="text-xs text-slate-400">Top areas</div>
+                        </div>
+                        <div class="chart-container" style="height: calc(100% - 32px);">
+                            <canvas id="areaChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="bg-white rounded-lg shadow p-3" style="height: 320px;">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-sm font-medium">Crimes by Hour</h3>
+                                <div class="text-xs text-slate-400">Hourly distribution</div>
+                            </div>
+                            <div class="chart-container" style="height: calc(100% - 32px);">
+                                <canvas id="timeChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow p-3" style="height: 320px;">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-sm font-medium">Top Crime Types</h3>
+                            </div>
+                            <div class="chart-container" style="height: calc(100% - 32px);">
+                                <canvas id="typeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="bg-white rounded-lg shadow p-3" style="height: 280px;">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-medium">Victim Age Distribution</h3>
+                        </div>
+                        <div class="chart-container" style="height: calc(100% - 32px);">
+                            <canvas id="victimChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow p-3" style="height: 320px;">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-medium">Map</h3>
+                            <div id="mapCount" class="text-xs text-slate-400">Showing 0 of 0</div>
+                        </div>
+                        <div id="map" class="w-full rounded" style="height: calc(100% - 32px);"></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+// Global chart instances
+let charts = {
+    area: null,
+    time: null,
+    type: null,
+    victim: null
+};
+
+// Global map
+let map = null;
+let markersLayer = null;
+
+// Month names for display (0 = All)
+const monthNames = ['All', 'January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+
+
+// Initialize dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    loadFilters();
+    initMap();
+    updateDashboard();
+
+    // Add event listener to apply filters button
+    const applyBtn = document.getElementById('applyFilters');
+    if (applyBtn) applyBtn.addEventListener('click', updateDashboard);
+});
+
+// Load filter options
+async function loadFilters() {
+    try {
+        const response = await fetch('/api/filters');
+        const data = await response.json();
+
+        // Populate area filter
+        const areaSelect = document.getElementById('areaFilter');
+        if (areaSelect) {
+            const any = document.createElement('option');
+            any.value = '';
+            any.textContent = 'All';
+            areaSelect.appendChild(any);
+            data.areas.forEach(area => {
+                const option = document.createElement('option');
+                option.value = area;
+                option.textContent = area;
+                areaSelect.appendChild(option);
+            });
+        }
+
+        // Populate year filter
+        const yearSelect = document.getElementById('yearFilter');
+        if (yearSelect) {
+            const any = document.createElement('option');
+            any.value = '';
+            any.textContent = 'All';
+            yearSelect.appendChild(any);
+            data.years.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearSelect.appendChild(option);
+            });
+        }
+
+        // Populate month filter with names
+        const monthSelect = document.getElementById('monthFilter');
+        if (monthSelect) {
+            const any = document.createElement('option');
+            any.value = '';
+            any.textContent = 'All';
+            monthSelect.appendChild(any);
+            for (let i = 1; i <= 12; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = monthNames[i];
+                monthSelect.appendChild(option);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading filters:', error);
+    }
+}
+
+// Get current filter values
+function getFilters() {
+    return {
+        area: document.getElementById('areaFilter') ? document.getElementById('areaFilter').value : '',
+        year: document.getElementById('yearFilter') ? document.getElementById('yearFilter').value : '',
+        month: document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : ''
+    };
+}
+
+// Build query string from filters
+function buildQueryString(filters) {
+    const params = new URLSearchParams();
+    if (filters.area) params.append('area', filters.area);
+    if (filters.year) params.append('year', filters.year);
+    if (filters.month) params.append('month', filters.month);
+    return params.toString();
+}
+
+// Update entire dashboard
+async function updateDashboard() {
+    const filters = getFilters();
+
+    await Promise.all([
+        updateSummary(filters),
+        updateAreaChart(filters),
+        updateTimeChart(filters),
+        updateTypeChart(filters),
+        updateVictimChart(filters),
+        updateMap(filters)
+    ]);
+}
+
+// Update summary statistics
+async function updateSummary(filters) {
+    try {
+        const query = buildQueryString(filters);
+        const response = await fetch(`/api/summary?${query}`);
+        const data = await response.json();
+
+        document.getElementById('totalCrimes').textContent = (data.total_crimes ?? 0).toLocaleString();
+        document.getElementById('avgAge').textContent = (data.avg_victim_age ?? 0).toFixed(1);
+
+        const ds = data.data_source || data.dataSource || null;
+        if (ds) {
+            const el = document.getElementById('dataSource');
+            if (el) el.textContent = ds;
+        }
+    } catch (error) {
+        console.error('Error updating summary:', error);
+    }
+}
+
+// Update area chart
+async function updateAreaChart(filters) {
+    try {
+        const query = buildQueryString({ year: filters.year, month: filters.month });
+        const response = await fetch(`/api/by_area?${query}`);
+        const data = await response.json();
+
+        const ctxEl = document.getElementById('areaChart');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+
+        if (charts.area) {
+            charts.area.destroy();
+        }
+
+        charts.area = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: 'Number of Crimes',
+                    data: data.data,
+                    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    maxBarThickness: 36
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        ticks: { autoSkip: true, maxRotation: 0, minRotation: 0 }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error updating area chart:', error);
+    }
+}
+
+// Update time chart
+async function updateTimeChart(filters) {
+    try {
+        const query = buildQueryString(filters);
+        const response = await fetch(`/api/by_time?${query}`);
+        const data = await response.json();
+
+        const ctxEl = document.getElementById('timeChart');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+
+        if (charts.time) {
+            charts.time.destroy();
+        }
+
+        charts.time = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: 'Crimes by Hour',
+                    data: data.data,
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        ticks: { autoSkip: true, maxRotation: 0, minRotation: 0 }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error updating time chart:', error);
+    }
+}
+
+// Update type chart
+async function updateTypeChart(filters) {
+    try {
+        const query = buildQueryString(filters);
+        const response = await fetch(`/api/by_type?${query}`);
+        const data = await response.json();
+
+        const ctxEl = document.getElementById('typeChart');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+
+        if (charts.type) {
+            charts.type.destroy();
+        }
+
+        charts.type = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    data: data.data,
+                    backgroundColor: [
+                        'rgba(239, 68, 68, 0.7)',
+                        'rgba(59, 130, 246, 0.7)',
+                        'rgba(16, 185, 129, 0.7)',
+                        'rgba(245, 158, 11, 0.7)',
+                        'rgba(139, 92, 246, 0.7)',
+                        'rgba(236, 72, 153, 0.7)',
+                        'rgba(20, 184, 166, 0.7)',
+                        'rgba(249, 115, 22, 0.7)',
+                        'rgba(99, 102, 241, 0.7)',
+                        'rgba(220, 38, 38, 0.7)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, padding: 6, usePointStyle: true, font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error updating type chart:', error);
+    }
+}
+
+// Update victim chart
+async function updateVictimChart(filters) {
+    try {
+        const query = buildQueryString(filters);
+        const response = await fetch(`/api/victims?${query}`);
+        const data = await response.json();
+
+        const ctxEl = document.getElementById('victimChart');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+
+        if (charts.victim) {
+            charts.victim.destroy();
+        }
+
+        charts.victim = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.age_distribution.labels,
+                datasets: [{
+                    label: 'Number of Victims',
+                    data: data.age_distribution.data,
+                    backgroundColor: 'rgba(139, 92, 246, 0.7)',
+                    borderColor: 'rgba(139, 92, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error updating victim chart:', error);
+    }
+}
+
+// Initialize map
+function initMap() {
+    map = L.map('map').setView([34.05, -118.25], 10);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 18
+    }).addTo(map);
+
+    markersLayer = L.layerGroup().addTo(map);
+    
+    // Invalidate size after a short delay to ensure proper rendering
+    setTimeout(() => map.invalidateSize(), 100);
+}
+
+// Update map with crime locations
+async function updateMap(filters) {
+    try {
+        const query = buildQueryString(filters);
+        const response = await fetch(`/api/map?${query}&limit=500`);
+        const data = await response.json();
+
+        markersLayer.clearLayers();
+
+        const mapCountEl = document.getElementById('mapCount');
+        if (mapCountEl) {
+            mapCountEl.textContent = `Showing ${data.crimes.length} of ${((data.total ?? 0)).toLocaleString()} crimes`;
+        }
+
+        data.crimes.forEach(crime => {
+            if (crime.lat == null || crime.lon == null) return;
+            const marker = L.circleMarker([crime.lat, crime.lon], {
+                radius: 5,
+                fillColor: '#ef4444',
+                color: '#dc2626',
+                weight: 1,
+                opacity: 0.8,
+                fillOpacity: 0.5
+            });
+
+            marker.bindPopup(`
+                <strong>${crime.crime}</strong><br>
+                Area: ${crime.area}
+            `);
+
+            markersLayer.addLayer(marker);
+        });
+
+        if (data.crimes.length > 0) {
+            const bounds = markersLayer.getBounds();
+            if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50] });
+        }
+        
+        map.invalidateSize();
+    } catch (error) {
+        console.error('Error updating map:', error);
+    }
+}
+        </script>
+    </body>
+</html>
